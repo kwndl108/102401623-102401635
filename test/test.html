@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>校园失物招领 · 单元测试</title>
+  <link rel="stylesheet" href="lib/mocha.css">
+  <style>
+    body { font-family: "Microsoft YaHei", sans-serif; padding: 0 20px 40px; }
+    h1 { font-size: 20px; }
+    .tip { background: #E4F7F0; border-left: 4px solid #00A876; padding: 8px 14px; border-radius: 6px; font-size: 13px; color: #006B4D; margin: 10px 0 20px; }
+    #mocha { margin: 0; }
+  </style>
+</head>
+<body>
+  <h1>校园失物招领 · 单元测试（Mocha + Chai）</h1>
+  <div class="tip">直接用谷歌浏览器打开本文件即可运行测试。测试对象为 js/utils.js 与 js/store.js 中的纯逻辑函数（不依赖页面 DOM）。</div>
+  <div id="mocha"></div>
+
+  <script src="lib/mocha.js"></script>
+  <script src="lib/chai.min.js"></script>
+  <script>mocha.setup('bdd');</script>
+
+  <!-- 被测模块：数据层 + 工具层（不含视图层 app.js，保持纯逻辑可测） -->
+  <script src="../js/store.js"></script>
+  <script src="../js/utils.js"></script>
+
+  <script>
+  /* ============================================================
+     测试数据构造思路：
+     1) 以 Store 种子数据（6 条真实示例）为基线；
+     2) 对每个函数补充边界输入：空字符串、空白、大小写混合、
+        非法日期、超长/过短文本、空数组、不存在的 id 等；
+     3) 针对"助教刁难"场景设计用例：搜索特殊词无结果、
+        联系方式只有 1 位、图片 4 张、重复 id 等。
+     ============================================================ */
+  var assert = chai.assert;
+  Store.init();               // 初始化种子数据（保证测试独立可运行）
+  var SEED = Store.getAll();  // 种子数据
+
+  /* ------------------------------------------------------------
+     搜索过滤测试使用独立构造的 fixture 数据，不依赖 localStorage
+     的真实状态（避免用户/助教手动操作过数据后导致用例失败）。
+     ------------------------------------------------------------ */
+  var FIX = [
+    { id: 'f1', type: 'lost', name: '校园卡', category: '证件卡片', place: '图书馆', placeDetail: '二楼自习区', desc: '蓝色校园卡', status: 'open', createdAt: 5 },
+    { id: 'f2', type: 'found', name: '白色无线耳机', category: '数码电子', place: '运动场', placeDetail: '看台区', desc: '白色 AirPods 风格无线耳机，右耳', status: 'open', createdAt: 4 },
+    { id: 'f3', type: 'lost', name: '黑色折叠雨伞', category: '服饰箱包', place: '图书馆', placeDetail: '正门', desc: '自动伞', status: 'open', createdAt: 3 },
+    { id: 'f4', type: 'found', name: '蓝色保温杯', category: '杯具水壶', place: '第二食堂', placeDetail: '靠窗座位', desc: '贴纸款', status: 'closed', createdAt: 2 },
+    { id: 'f5', type: 'lost', name: '高数课本', category: '书籍文具', place: '第一教学楼', placeDetail: '302 教室', desc: '封面贴姓名贴', status: 'open', createdAt: 1 },
+    { id: 'f6', type: 'found', name: '一串钥匙', category: '钥匙门禁', place: '宿舍区', placeDetail: '一楼大厅', desc: '小熊挂件', status: 'open', createdAt: 0 }
+  ];
+
+  describe('Utils.filterItems（搜索过滤）', function () {
+
+    it('按物品名称关键词过滤：搜索"校园卡"能命中名称中含校园卡的信息', function () {
+      var res = Utils.filterItems(FIX, { keyword: '校园卡' });
+      assert.ok(res.length >= 1, '至少命中 1 条');
+      res.forEach(function (it) { assert.match(it.name, /校园卡/); });
+    });
+
+    it('关键词忽略大小写与首尾空格：搜索"  AirPods  "等价于"airpods"', function () {
+      var a = Utils.filterItems(FIX, { keyword: '  AirPods  ' });
+      var b = Utils.filterItems(FIX, { keyword: 'airpods' });
+      assert.deepEqual(a.map(function (x) { return x.id; }), b.map(function (x) { return x.id; }));
+    });
+
+    it('关键词同时匹配名称、描述、地点：搜索"看台区"能命中描述里包含该词的耳机', function () {
+      var res = Utils.filterItems(FIX, { keyword: '看台区' });
+      assert.ok(res.length >= 1);
+      assert.equal(res[0].name, '白色无线耳机');
+    });
+
+    it('按类型筛选：type=found 只返回招领信息', function () {
+      var res = Utils.filterItems(FIX, { type: 'found' });
+      assert.ok(res.length > 0);
+      res.forEach(function (it) { assert.equal(it.type, 'found'); });
+    });
+
+    it('按类别筛选：category=杯具水壶 只返回保温杯', function () {
+      var res = Utils.filterItems(FIX, { category: '杯具水壶' });
+      assert.equal(res.length, 1);
+      assert.equal(res[0].name, '蓝色保温杯');
+    });
+
+    it('按地点筛选：place=图书馆 的结果都位于图书馆', function () {
+      var res = Utils.filterItems(FIX, { place: '图书馆' });
+      assert.ok(res.length >= 2);
+      res.forEach(function (it) { assert.equal(it.place, '图书馆'); });
+    });
+
+    it('按状态筛选：status=closed 只返回已标记为已找到/已归还的信息', function () {
+      var res = Utils.filterItems(FIX, { status: 'closed' });
+      assert.equal(res.length, 1);
+      assert.equal(res[0].id, 'f4');
+      var open = Utils.filterItems(FIX, { status: 'open' });
+      assert.equal(open.length, 5);
+    });
+
+    it('组合条件：type=lost 且 关键词=雨伞', function () {
+      var res = Utils.filterItems(FIX, { type: 'lost', keyword: '雨伞' });
+      assert.equal(res.length, 1);
+      assert.equal(res[0].name, '黑色折叠雨伞');
+    });
+
+    it('空关键词 + 无筛选：返回全部', function () {
+      var res = Utils.filterItems(FIX, { keyword: '' });
+      assert.equal(res.length, FIX.length);
+    });
+
+    it('无匹配时返回空数组（助教刁难：搜索不存在的词）', function () {
+      var res = Utils.filterItems(FIX, { keyword: '月球车' });
+      assert.equal(res.length, 0);
+    });
+
+    it('不修改原数组（纯函数）', function () {
+      var before = FIX.map(function (it) { return it.id; });
+      Utils.filterItems(FIX, { keyword: '校园卡' });
+      var after = FIX.map(function (it) { return it.id; });
+      assert.deepEqual(before, after);
+    });
+  });
+
+  describe('Utils.validatePublish（发布表单校验）', function () {
+
+    it('空表单：五个必填项全部报错', function () {
+      var res = Utils.validatePublish({ name: '', category: '', place: '', time: '', contact: '' });
+      assert.equal(res.ok, false);
+      ['name', 'category', 'place', 'time', 'contact'].forEach(function (f) {
+        assert.ok(res.errors[f], '缺少 ' + f + ' 的报错');
+      });
+    });
+
+    it('只填名称：仅名称不报错，其余四项仍报错', function () {
+      var res = Utils.validatePublish({ name: '校园卡', category: '', place: '', time: '', contact: '' });
+      assert.equal(res.ok, false);
+      assert.equal(res.errors.name, undefined);
+      assert.ok(res.errors.category && res.errors.place && res.errors.time && res.errors.contact);
+    });
+
+    it('联系方式过短（1 位）报错', function () {
+      var res = Utils.validatePublish({ name: '校园卡', category: '证件卡片', place: '图书馆', time: '2026/10/01 10:00', contact: 'a' });
+      assert.equal(res.ok, false);
+      assert.match(res.errors.contact, /过短/);
+    });
+
+    it('图片超过 3 张报错', function () {
+      var res = Utils.validatePublish({ name: '校园卡', category: '证件卡片', place: '图书馆', time: '2026/10/01 10:00', contact: '123456', images: [1, 2, 3, 4] });
+      assert.equal(res.ok, false);
+      assert.ok(res.errors.images);
+    });
+
+    it('合法表单校验通过（助教正常操作场景）', function () {
+      var res = Utils.validatePublish({ name: '蓝色保温杯', category: '杯具水壶', place: '图书馆', time: '2026/10/01 10:00', contact: '13800002024', desc: '杯身有贴纸' });
+      assert.equal(res.ok, true);
+    });
+
+    it('联系方式前后空格会被忽略：name 传空白字符串等于没填', function () {
+      var res = Utils.validatePublish({ name: '   ', category: '证件卡片', place: '图书馆', time: 'x', contact: '13800002024' });
+      assert.equal(res.ok, false);
+      assert.ok(res.errors.name);
+    });
+  });
+
+  describe('Utils.statusText / statusClass / typeText（状态文案）', function () {
+
+    it('寻物+进行中 = 寻找中；招领+进行中 = 待认领', function () {
+      assert.equal(Utils.statusText({ type: 'lost', status: 'open' }), '寻找中');
+      assert.equal(Utils.statusText({ type: 'found', status: 'open' }), '待认领');
+    });
+
+    it('寻物+已结束 = 已找到；招领+已结束 = 已归还', function () {
+      assert.equal(Utils.statusText({ type: 'lost', status: 'closed' }), '已找到');
+      assert.equal(Utils.statusText({ type: 'found', status: 'closed' }), '已归还');
+    });
+
+    it('statusClass 输出正确的 css 类名', function () {
+      assert.equal(Utils.statusClass({ type: 'lost', status: 'open' }), 'open lost');
+      assert.equal(Utils.statusClass({ type: 'found', status: 'closed' }), 'closed');
+    });
+
+    it('typeText 输出 失物/招领', function () {
+      assert.equal(Utils.typeText({ type: 'lost' }), '失物');
+      assert.equal(Utils.typeText({ type: 'found' }), '招领');
+    });
+  });
+
+  describe('Utils.formatTime（时间格式化）', function () {
+
+    var now = new Date(2026, 9, 8, 14, 0); // 2026-10-08 14:00
+
+    it('今天 → "今天 HH:MM"', function () {
+      assert.equal(Utils.formatTime(new Date(2026, 9, 8, 9, 5), now), '今天 09:05');
+    });
+
+    it('昨天 → "昨天 HH:MM"', function () {
+      assert.equal(Utils.formatTime(new Date(2026, 9, 7, 16, 30), now), '昨天 16:30');
+    });
+
+    it('前天 → "前天 HH:MM"', function () {
+      assert.equal(Utils.formatTime(new Date(2026, 9, 6, 12, 0), now), '前天 12:00');
+    });
+
+    it('更早 → "MM-DD HH:MM"', function () {
+      assert.equal(Utils.formatTime(new Date(2026, 8, 23, 9, 15), now), '09-23 09:15');
+    });
+
+    it('字符串时间与 Date 等效：支持 "2026/09/25 10:20"', function () {
+      assert.equal(Utils.formatTime('2026/09/25 10:20', now), '09-25 10:20');
+    });
+
+    it('非法输入原样返回（助教刁难：传垃圾数据不崩）', function () {
+      assert.equal(Utils.formatTime('not-a-date', now), 'not-a-date');
+      assert.equal(Utils.formatTime(null, now), '');
+    });
+  });
+
+  describe('Utils.normalizeKeyword / generateId / sortByTimeDesc / stats', function () {
+
+    it('normalizeKeyword：去首尾空格并转小写', function () {
+      assert.equal(Utils.normalizeKeyword('  AirPods  '), 'airpods');
+      assert.equal(Utils.normalizeKeyword(undefined), '');
+    });
+
+    it('generateId：多次生成不重复', function () {
+      var ids = {};
+      for (var i = 0; i < 200; i++) {
+        var id = Utils.generateId();
+        assert.ok(!ids[id], 'ID 重复: ' + id);
+        ids[id] = 1;
+      }
+    });
+
+    it('sortByTimeDesc：按创建时间倒序且不修改原数组', function () {
+      var arr = [{ createdAt: 1 }, { createdAt: 3 }, { createdAt: 2 }];
+      var sorted = Utils.sortByTimeDesc(arr);
+      assert.deepEqual(sorted.map(function (x) { return x.createdAt; }), [3, 2, 1]);
+      assert.deepEqual(arr.map(function (x) { return x.createdAt; }), [1, 3, 2]);
+    });
+
+    it('stats：统计总数/已结束/被联系次数', function () {
+      var s = Utils.stats([
+        { status: 'closed', contacts: 2 },
+        { status: 'open', contacts: 1 },
+        { status: 'closed', contacts: 0 }
+      ]);
+      assert.deepEqual(s, { total: 3, closed: 2, helped: 3 });
+    });
+  });
+
+  describe('Store（数据层 CRUD）', function () {
+
+    it('add 后 getById 可读取，且进入我的发布列表', function () {
+      var item = { id: 't1', type: 'lost', name: '测试物品', category: '书籍文具', place: '体育馆', time: 'x', contact: '12345', status: 'open', createdAt: Date.now(), images: [] };
+      Store.add(item);
+      assert.equal(Store.getById('t1').name, '测试物品');
+      assert.ok(Store.isMine('t1'));
+      Store.remove('t1');
+    });
+
+    it('update 只修改指定字段，其余保持不变', function () {
+      var before = Store.getById('seed2');
+      Store.update('seed2', { status: 'closed' });
+      var after = Store.getById('seed2');
+      assert.equal(after.status, 'closed');
+      assert.equal(after.name, before.name);
+      Store.update('seed2', { status: 'open' });
+    });
+
+    it('getById 不存在的 id 返回 null（助教刁难）', function () {
+      assert.equal(Store.getById('no-such-id'), null);
+    });
+
+    it('remove 后不可再读取', function () {
+      Store.add({ id: 't2', type: 'lost', name: '待删除', category: '书籍文具', place: 'x', time: 'x', contact: 'x', status: 'open', createdAt: Date.now(), images: [] });
+      Store.remove('t2');
+      assert.equal(Store.getById('t2'), null);
+    });
+
+    it('getMine 只返回我发布的物品', function () {
+      var mine = Store.getMine();
+      assert.ok(mine.length >= 1);
+      mine.forEach(function (it) { assert.equal(Store.isMine(it.id), true); });
+    });
+
+    it('计数：bumpView / bumpContact 每次 +1', function () {
+      var before = Store.getById('seed3').views;
+      Store.bumpView('seed3');
+      assert.equal(Store.getById('seed3').views, before + 1);
+    });
+  });
+
+  mocha.checkLeaks();
+  mocha.run();
+  </script>
+</body>
+</html>
